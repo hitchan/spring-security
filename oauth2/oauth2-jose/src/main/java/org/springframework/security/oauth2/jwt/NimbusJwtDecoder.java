@@ -25,15 +25,21 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import javax.crypto.SecretKey;
 
+import com.nimbusds.jose.Algorithm;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.RemoteKeySourceException;
+import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.JWKMatcher;
+import com.nimbusds.jose.jwk.JWKSelector;
 import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.source.JWKSetCache;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.RemoteJWKSet;
@@ -62,6 +68,7 @@ import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestOperations;
 import org.springframework.web.client.RestTemplate;
 
@@ -293,6 +300,42 @@ public final class NimbusJwtDecoder implements JwtDecoder {
 				}
 				return new JWSVerificationKeySelector<>(jwsAlgorithms, jwkSource);
 			}
+		}
+
+		private Set<SignatureAlgorithm> fetchSignatureAlgorithms() {
+			if (StringUtils.isEmpty(jwkSetUri)) {
+				return Collections.emptySet();
+			}
+			try {
+				return parseAlgorithms(JWKSet.load(toURL(jwkSetUri)));
+			} catch (Exception ex) {
+//				log.error("Failed to load Signature Algorithms from remote JWK source.");
+				return Collections.emptySet();
+			}
+		}
+
+		private Set<SignatureAlgorithm> parseAlgorithms(JWKSet jwkSet) {
+			if (jwkSet == null) {
+				return Collections.emptySet();
+			}
+
+			JWKSelector selector = new JWKSelector(new JWKMatcher.Builder()
+					.keyUse(KeyUse.SIGNATURE)
+					.build());
+			List<JWK> jwks = selector.select(jwkSet);
+
+			Set<SignatureAlgorithm> algorithms = new HashSet<>();
+			for (JWK jwk : jwks) {
+				Algorithm algorithm = jwk.getAlgorithm();
+				if (algorithm != null) {
+					SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.from(algorithm.getName());
+					if (signatureAlgorithm != null) {
+						algorithms.add(signatureAlgorithm);
+					}
+				}
+			}
+
+			return algorithms;
 		}
 
 		JWKSource<SecurityContext> jwkSource(ResourceRetriever jwkSetRetriever) {
